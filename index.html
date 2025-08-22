@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>fujiHD 3Dビューア + GUI</title>
+  <style>
+    body{margin:0;overflow:hidden;background:#444}
+    canvas{display:block}
+    #tooltip{position:absolute;display:none;z-index:10;background:rgba(255,255,255,.95);border:1px solid #999;border-radius:6px;padding:6px;font:14px/1 sans-serif}
+    #tooltip img{width:160px;height:auto;display:block;margin-bottom:4px}
+    #loading{position:fixed;inset:0;display:grid;place-items:center;color:#eee;font:16px/1.4 sans-serif;background:#444}
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/GLTFLoader.js"></script>
+  <!-- ★ これに差し替え（UMD版） -->
+  <script src="https://cdn.jsdelivr.net/npm/lil-gui@0.19/dist/lil-gui.umd.min.js"></script>
+</head>
+<body>
+<div id="tooltip"></div>
+<div id="loading">Loading…（GLBが大きいので少し待ってね）</div>
+<script>
+/* ===== 0. 基本セットアップ ===== */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xcccccc);
+scene.add(new THREE.AxesHelper(100));
+scene.add(new THREE.GridHelper(200, 20));
+
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 1000);
+camera.position.set(0, 40, 70);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.target.set(0,5,0); controls.update();
+
+const ambient = new THREE.AmbientLight(0xffffff, 0.95);
+scene.add(ambient);
+
+const sun = new THREE.DirectionalLight(0xffffff, 0.4);
+sun.position.set(500, 0, 100);
+scene.add(sun);
+
+/* ===== 1. モデル読み込み ===== */
+new THREE.GLTFLoader().load(
+  'fujiHD.glb',
+  g=>{
+    const m = g.scene;
+    m.scale.set(0.5,0.5,0.5);
+    const deg = d => d*Math.PI/180;
+    m.rotation.set(deg(80),0,0); // 必要に応じて調整
+    m.traverse(o=>{
+      if(o.isMesh && o.material && o.material.color){
+        o.material.color.multiplyScalar(1.1);
+      }
+    });
+    scene.add(m);
+    document.getElementById('loading').style.display='none';
+  },
+  undefined,
+  err=>{
+    document.getElementById('loading').textContent = 'GLBの読み込みに失敗しました: '+err.message;
+    console.error(err);
+  }
+);
+
+/* ===== 2. スプライト（サンプル） ===== */
+const spriteInfo = [
+  { img:'1.png', pos:[  7, 5,  25], label:'① 校庭の動画を見る', thumb:'thumb1.jpg', url:'https://youtu.be/i3zNW7IayQI' },
+  { img:'2.png', pos:[ 11, 6, -23], label:'② 校舎の紹介',       thumb:'thumb2.jpg', url:'https://youtu.be/J4syLpke3Vw' },
+  { img:'3.png', pos:[ 40, 3,  45], label:'③ 川と桜の動画',     thumb:'thumb3.jpg', url:'https://youtu.be/evLFb1z0xEI' },
+  { img:'4.png', pos:[-30, 8, -40], label:'④ プールエリア',     thumb:'thumb4.jpg', url:'https://youtu.be/wUhEjw1rA2o' },
+  { img:'5.png', pos:[ 33, 1, -44], label:'⑤ 付近の魚道',       thumb:'thumb5.jpg', url:'https://youtu.be/HUzOqBaEruw' }
+];
+const sprites = [], tex = new THREE.TextureLoader();
+spriteInfo.forEach(d=>{
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:tex.load(d.img), transparent:true}));
+  sp.scale.set(3,3,1);
+  sp.position.set(...d.pos);
+  sp.userData = d;
+  scene.add(sp);
+  sprites.push(sp);
+});
+
+/* ===== 3. 自動回転制御 ===== */
+const AUTO_DELAY = 10000;
+let autoRot = true, lastUser = performance.now();
+let currentAngle = 0, lastFrame = performance.now();
+const radius = camera.position.length(), baseY = camera.position.y;
+function stopAuto(){ autoRot=false; lastUser=performance.now(); }
+addEventListener('pointerdown', stopAuto);
+addEventListener('wheel', stopAuto);
+
+/* ===== 4. 複数ボックス ===== */
+const boxDefs = [
+  { color:0x00ffff, link:"https://youtu.be/dQw4w9WgXcQ", pos:[10,2,-5],   rot:[0, Math.PI/4, 0], size:[18,3,25] },
+  { color:0xff3333, link:"https://youtu.be/J4syLpke3Vw", pos:[35,4,-15],  rot:[0, 0, Math.PI/6], size:[14,3,18] },
+  { color:0x33ff99, link:"https://youtu.be/i3zNW7IayQI", pos:[-20,8,30],  rot:[Math.PI/8, 0, 0], size:[10,2,10] }
+];
+const boxMeshes=[], boxMats=[], boxOrigins=[], boxTargets=[], boxPhases=[];
+boxDefs.forEach(def=>{
+  const geom = new THREE.BoxGeometry(...def.size);
+  const mat  = new THREE.MeshBasicMaterial({color:def.color, transparent:true, opacity:0.35});
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.set(...def.pos);
+  mesh.rotation.set(...def.rot);
+  mesh.visible = false;
+  mesh.userData = { url:def.link };
+  scene.add(mesh);
+
+  boxMeshes.push(mesh);
+  boxMats.push(mat);
+  boxOrigins.push(def.pos[1]);
+  boxTargets.push(def.pos[1]+30);
+  boxPhases.push(0);
+});
+
+/* ===== 5. ヒット判定・ツールチップ ===== */
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+const tip = document.getElementById('tooltip');
+let cur=null, mousePixX=0, mousePixY=0, boxHoverIndex=-1;
+
+addEventListener('mousemove', e=>{
+  mousePixX=e.clientX; mousePixY=e.clientY;
+  mouse.x =  (e.clientX/innerWidth)*2-1;
+  mouse.y = -(e.clientY/innerHeight)*2+1;
+  ray.setFromCamera(mouse, camera);
+
+  const hit = ray.intersectObjects(sprites)[0]?.object||null;
+  if(hit!==cur){ cur=hit; tip.style.display = cur?'block':'none'; }
+  if(cur){
+    const d=cur.userData;
+    tip.innerHTML = `<img src="${d.thumb}"><strong>${d.label}</strong>`;
+    tip.style.left = (mousePixX+12)+'px';
+    tip.style.top  = (mousePixY+12)+'px';
+  }
+
+  boxHoverIndex = -1;
+  for(let i=0;i<boxMeshes.length;i++){
+    const hits = ray.intersectObject(boxMeshes[i]);
+    if(hits.length){ boxHoverIndex=i; break; }
+  }
+  document.body.style.cursor = (boxHoverIndex>=0 || cur) ? 'pointer' : '';
+});
+
+addEventListener('click', ()=>{
+  if(boxHoverIndex>=0 && boxMeshes[boxHoverIndex].userData.url){
+    window.open(boxMeshes[boxHoverIndex].userData.url, "_blank");
+  }
+  if(cur && cur.userData.url){ window.open(cur.userData.url, "_blank"); }
+});
+
+/* ===== 6. GUI（明るさ・太陽位置・背景・回転） ===== */
+if(!window.lil){ console.error('lil-gui が読み込めていません'); }
+const gui = new lil.GUI();
+const params = {
+  background:'#cccccc',
+  ambient: ambient.intensity,
+  sunIntensity: sun.intensity,
+  sunElevation: 20,
+  sunAzimuth:  11,
+  autoRotate: true,
+  rpm: 0.5
+};
+scene.background = new THREE.Color(params.background);
+
+gui.addColor(params, 'background').name('Background').onChange(v=>{
+  scene.background = new THREE.Color(v);
+});
+gui.add(params, 'ambient', 0, 3, 0.01).name('Ambient').onChange(v=> ambient.intensity=v);
+gui.add(params, 'sunIntensity', 0, 3, 0.01).name('Sun Intensity').onChange(v=> sun.intensity=v);
+
+function updateSun(){
+  const elev = THREE.MathUtils.degToRad(params.sunElevation);
+  const az   = THREE.MathUtils.degToRad(params.sunAzimuth);
+  const r = 800;
+  sun.position.set(
+    r * Math.cos(elev) * Math.cos(az),
+    r * Math.sin(elev),
+    r * Math.cos(elev) * Math.sin(az)
+  );
+}
+gui.add(params, 'sunElevation', -10, 90, 1).name('Sun Elev [deg]').onChange(updateSun);
+gui.add(params, 'sunAzimuth', -180, 180, 1).name('Sun Azi [deg]').onChange(updateSun);
+updateSun();
+
+gui.add(params, 'autoRotate').name('Auto Rotate').onChange(v=>{
+  autoRot = v; lastUser = performance.now();
+});
+gui.add(params, 'rpm', 0, 3, 0.01).name('Rotate RPM').onChange(v=>{
+  ANG_SPEED_VAL = v * 2 * Math.PI / 60;
+});
+let ANG_SPEED_VAL = params.rpm * 2 * Math.PI / 60;
+
+/* ===== 7. ループ ===== */
+function animate(){
+  requestAnimationFrame(animate);
+  const now = performance.now();
+  const dt  = Math.min((now-lastFrame)/1000, 0.1); lastFrame=now;
+
+  if(!autoRot && now - lastUser > AUTO_DELAY){ autoRot=true; params.autoRotate=true; }
+  if(autoRot){
+    currentAngle += ANG_SPEED_VAL * dt;
+    camera.position.x = radius * Math.sin(currentAngle);
+    camera.position.z = radius * Math.cos(currentAngle);
+    camera.position.y = baseY;
+    camera.lookAt(0,5,0);
+  }
+  controls.update();
+
+  const animSpeed = 0.5;
+  for(let i=0;i<boxMeshes.length;i++){
+    if(boxHoverIndex===i){
+      boxMeshes[i].visible = true;
+      boxPhases[i] += dt * animSpeed;
+      if(boxPhases[i]>1) boxPhases[i]-=1;
+      const y = boxOrigins[i] + (boxTargets[i]-boxOrigins[i]) * boxPhases[i];
+      const alpha = 0.35 * (1 - boxPhases[i]);
+      boxMeshes[i].position.y = y;
+      boxMats[i].opacity = alpha;
+    }else{
+      boxMeshes[i].visible = false;
+      boxPhases[i] = 0;
+      boxMeshes[i].position.y = boxOrigins[i];
+      boxMats[i].opacity = 0.35;
+    }
+  }
+  renderer.render(scene, camera);
+}
+animate();
+
+/* ===== 8. リサイズ ===== */
+addEventListener('resize', ()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>

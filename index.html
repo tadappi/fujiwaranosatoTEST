@@ -60,6 +60,34 @@
   controls.autoRotateSpeed = 0.5;
   controls.target.set(0, 0, 0);
 
+// === Raycaster & state ===
+const raycaster = new THREE.Raycaster();
+const mouseNDC = new THREE.Vector2();
+
+let hoverObject = null;        // いまホバー中の対象
+const clickableObjects = [];   // クリック判定対象（ピン、エリア等）
+
+// マウス座標更新
+renderer.domElement.addEventListener('pointermove', (e)=>{
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+});
+
+// クリック
+renderer.domElement.addEventListener('click', ()=>{
+  if (!hoverObject) return;
+  const url = hoverObject.userData?.url;
+  if (url) window.open(url, '_blank');
+});
+
+
+
+
+
+
+
+  
   // ----------------------------------------
   // 光
   // ----------------------------------------
@@ -126,6 +154,40 @@ scene.add(axes);
     alert('GLBの読み込みに失敗しました。パスやファイル名を確認してください。');
   });
 
+
+// ========= その1：ピン =========
+const pin = createPin({
+  pos: [10, 8, -5],                      // ★位置はあとで調整（モデル原点基準）
+  url: 'https://dazaifu.org/dazaifu-seicho-ato/',
+  iconBlue: './pin1blue.png',
+  iconRed:  './pin1red.png',
+  labelPng: './seicho.png',
+  scale: 10                              // ピンの大きさ（メートル換算のつもりで調整）
+});
+root.add(pin);
+clickableObjects.push(pin);
+
+// ========= その2：エリア =========
+const { trigger: areaTrigger, fx: areaFx } = createHoverArea({
+  center: [60, 6, -30],                  // ★中心座標（あとで調整）
+  size:   [80, 12, 60],                  // ★幅x高さx奥行（あとで調整）
+  url: 'https://oki-park.jp/shurijo/guide/51',
+  color: 0x2a6cff
+});
+root.add(areaTrigger);
+root.add(areaFx);
+clickableObjects.push(areaTrigger);
+
+// 調整しやすいよう、目視用ヘルパー（任意）
+// const h1 = new THREE.Box3Helper(new THREE.Box3().setFromObject(areaTrigger), 0x0077ff);
+// scene.add(h1);
+
+
+
+
+
+  
+
   // ----------------------------------------
   // GUI
   // ----------------------------------------
@@ -184,22 +246,129 @@ scene.add(axes);
     controls.autoRotateSpeed = v;
   });
 
+
+// ========== その1：ピン（Sprite） ==========
+function createPin({ pos=[0,0,0], url, iconBlue, iconRed, labelPng, scale=10 }) {
+  const texBlue = new THREE.TextureLoader().load(iconBlue);
+  const texRed  = new THREE.TextureLoader().load(iconRed);
+  const texLabel= labelPng ? new THREE.TextureLoader().load(labelPng) : null;
+
+  const matBlue = new THREE.SpriteMaterial({ map: texBlue, transparent: true });
+  const matRed  = new THREE.SpriteMaterial({ map: texRed,  transparent: true });
+
+  const pin = new THREE.Sprite(matBlue);
+  pin.position.set(...pos);
+  pin.scale.setScalar(scale);
+  pin.renderOrder = 10; // 前面に出したいとき
+
+  pin.userData = {
+    url,
+    type: 'pin',
+    mats: { blue: matBlue, red: matRed },
+    label: null
+  };
+
+  // ラベル（Sprite）— ホバー時だけ表示
+  if (texLabel) {
+    const matLabel = new THREE.SpriteMaterial({ map: texLabel, transparent: true, depthTest: true });
+    const label = new THREE.Sprite(matLabel);
+    label.scale.setScalar(scale * 2.0);  // 好みで
+    label.position.set(0, scale * 1.4, 0); // ピンの上に
+    label.visible = false;
+    pin.add(label);
+    pin.userData.label = label;
+  }
+  return pin;
+}
+
+// ========== その2：エリア（Invisible Trigger + Effect Box） ==========
+function createHoverArea({ center=[0,0,0], size=[30,10,30], url, color=0x2a6cff }) {
+  // ヒット判定用（見えない箱）
+  const triggerMat = new THREE.MeshBasicMaterial({ color: 0x000000, opacity: 0.0, transparent: true });
+  const trigger = new THREE.Mesh(new THREE.BoxGeometry(...size), triggerMat);
+  trigger.position.set(...center);
+  trigger.userData = { url, type:'area' };
+
+  // 見えるエフェクト（半透明箱）— ホバー時のみ表示＆浮遊アニメ
+  const fxMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, depthWrite: false });
+  const fx = new THREE.Mesh(new THREE.BoxGeometry(size[0]*1.02, size[1], size[2]*1.02), fxMat);
+  fx.position.set(...center);
+  fx.visible = false;             // ホバー時のみ表示
+  fx.userData = { baseY: center[1], t: 0 };
+
+  return { trigger, fx };
+}
+
+
+
+
+
+
+
+
+
+  
   // ----------------------------------------
   // ループ
   // ----------------------------------------
   const clock = new THREE.Clock();
-  function tick(){
-    if (root){
-      root.rotation.set(
-        THREE.MathUtils.degToRad(params.rotateX),
-        THREE.MathUtils.degToRad(params.rotateY),
-        THREE.MathUtils.degToRad(params.rotateZ)
-      );
+
+
+function tick(){
+  // --- レイキャスト（ホバー判定） ---
+  raycaster.setFromCamera(mouseNDC, camera);
+  const hits = raycaster.intersectObjects(clickableObjects, true); // 子もOK
+  const hit = hits.length ? (hits[0].object.userData.type === 'pin' ? hits[0].object : hits[0].object.parent?.userData?.type==='pin' ? hits[0].object.parent : hits[0].object) : null;
+
+  // 前フレームと違う対象にホバーしたら切替
+  if (hoverObject !== hit) {
+    // 既存のホバー解除
+    if (hoverObject) {
+      if (hoverObject.userData.type === 'pin') {
+        hoverObject.material = hoverObject.userData.mats.blue;
+        if (hoverObject.userData.label) hoverObject.userData.label.visible = false;
+      } else if (hoverObject.userData.type === 'area') {
+        // 何もしない（エフェクトは下で処理）
+      }
     }
-    controls.update();
-    renderer.render(scene, camera);
-    requestAnimationFrame(tick);
+    hoverObject = hit;
+    // 新しくホバー
+    if (hoverObject) {
+      if (hoverObject.userData.type === 'pin') {
+        hoverObject.material = hoverObject.userData.mats.red;
+        if (hoverObject.userData.label) hoverObject.userData.label.visible = true;
+      }
+    }
+    // マウスカーソル形状
+    renderer.domElement.style.cursor = hoverObject ? 'pointer' : 'default';
   }
+
+  // --- その2の浮遊エフェクト（ホバー時のみ可視＆上下にフワッ） ---
+  if (hoverObject && hoverObject.userData.type === 'area') {
+    areaFx.visible = true;
+    areaFx.userData.t += 0.03; // 速度
+    const yOff = Math.sin(areaFx.userData.t) * 4; // 上下量
+    areaFx.position.y = areaFx.userData.baseY + yOff;
+    areaFx.material.opacity = 0.35 * (0.6 + 0.4 * Math.cos(areaFx.userData.t)); // うっすら明滅
+  } else {
+    areaFx.visible = false;
+    areaFx.userData.t = 0;
+    areaFx.position.y = areaFx.userData.baseY;
+    areaFx.material.opacity = 0.35;
+  }
+
+  // --- 既存：モデル回転＆描画 ---
+  if (root){
+    root.rotation.set(
+      THREE.MathUtils.degToRad(params.rotateX),
+      THREE.MathUtils.degToRad(params.rotateY),
+      THREE.MathUtils.degToRad(params.rotateZ)
+    );
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
   tick();
 
   // リサイズ
@@ -213,6 +382,7 @@ scene.add(axes);
 </script>
 </body>
 </html>
+
 
 
 

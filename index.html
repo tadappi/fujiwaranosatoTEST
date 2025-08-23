@@ -104,6 +104,12 @@
     });
     scene.add(root);
 
+// === Axes Helper（3軸） ===
+const axes = new THREE.AxesHelper(100); // 数字は軸の長さ
+axes.visible = true;                    // とりあえず表示ON
+scene.add(axes);
+
+    
     // フィット
     const box = new THREE.Box3().setFromObject(root);
     const size = new THREE.Vector3(), center = new THREE.Vector3();
@@ -207,5 +213,6 @@
 </script>
 </body>
 </html>
+
 
 

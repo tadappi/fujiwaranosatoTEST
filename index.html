@@ -52,7 +52,7 @@
   scene.background = new THREE.Color(0x0b0e13);
 
   const camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 5000);
-  camera.position.set(0, 80, 160);
+  camera.position.set(0, 40, 80);
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
@@ -213,6 +213,7 @@ scene.add(axes);
 </script>
 </body>
 </html>
+
 
 
 

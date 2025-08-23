@@ -130,7 +130,7 @@
       const matLabel = new THREE.SpriteMaterial({ map: texLabel, transparent: true, depthTest: true });
       const label = new THREE.Sprite(matLabel);
       label.scale.setScalar(scale * 2.0);
-      label.position.set(0, scale * 1.4, 0);
+      label.position.set(...labelOffset); // ← ★ここで外から指定
       label.visible = false;
       pin.add(label);
       pin.userData.label = label;
@@ -187,6 +187,7 @@
       iconBlue: './pin1blue.png',
       iconRed:  './pin1red.png',
       labelPng: './seicho.png',
+　　　labelOffset: [0, 3, 0]   // ← ラベルを好きな位置にずらせる
       scale: 1
     });
     root.add(pin1);
@@ -325,4 +326,5 @@
 </script>
 </body>
 </html>
+
 

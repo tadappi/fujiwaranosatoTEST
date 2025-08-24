@@ -131,7 +131,7 @@
   }
 
   // 緑ピン専用：常時緑、ホバーで各ラベル表示、リンクなし・色変化なし
-  function createGreenPin({ pos=[0,0,0], labelPng, scale=2, labelOffset=[0, scale*1.4, 0] }) {
+  function createGreenPin({ pos=[0,0,0], labelPng, scale=1, labelOffset=[0, scale*1.4, 0] }) {
     const loader = new THREE.TextureLoader();
     const texPin   = loader.load('./labelpin1green.png'); // 緑ピン本体
     const texLabel = loader.load(labelPng);               // 個別ラベル
@@ -395,3 +395,4 @@
 </script>
 </body>
 </html>
+

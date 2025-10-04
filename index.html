@@ -6,6 +6,7 @@
   <title>20autorota — three.js viewer (sRGB + Shadow + GUI + Pins)</title>
   <style>
     html,body{height:100%;margin:0}
+    /* 読み込み前の下地も同じ色に統一 */
     #app{position:fixed;inset:0;background:#c2c2c2}
     canvas{display:block}
     .hint{
@@ -33,6 +34,8 @@
   import GUI from 'https://cdn.jsdelivr.net/npm/lil-gui@0.19/+esm';
 
   // ========================= 基本セットアップ =========================
+  const DEFAULT_BG = '#c2c2c2'; // ← ここを変えるだけで一括変更OK
+
   const container = document.getElementById('app');
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -43,7 +46,7 @@
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(c2c2c2);
+  scene.background = new THREE.Color(DEFAULT_BG); // ★致命因の修正ポイント
 
   const camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 5000);
   camera.position.set(0, 40, 80);
@@ -300,7 +303,7 @@
   // ========================= GUI =========================
   const gui = new GUI({ title: 'Controls' });
   const params = {
-    background: '#c2c2c2',
+    background: DEFAULT_BG,                 // GUIの初期値も統一
     ambientIntensity: ambient.intensity,
     sunIntensity: sun.intensity,
     sunElevDeg: 35,
@@ -319,10 +322,13 @@
   };
   upSun();
 
-  gui.addColor(params, 'background').name('Background').onChange(v=> scene.background = new THREE.Color(v));
+  gui.addColor(params, 'background').name('Background')
+     .onChange(v=> scene.background = new THREE.Color(v));
   const fL = gui.addFolder('Lighting');
-  fL.add(params, 'ambientIntensity', 0, 2.5, 0.01).name('Ambient').onChange(v=> ambient.intensity = v);
-  fL.add(params, 'sunIntensity', 0, 3, 0.01).name('Sun').onChange(v=> sun.intensity = v);
+  fL.add(params, 'ambientIntensity', 0, 2.5, 0.01).name('Ambient')
+    .onChange(v=> ambient.intensity = v);
+  fL.add(params, 'sunIntensity', 0, 3, 0.01).name('Sun')
+    .onChange(v=> sun.intensity = v);
   fL.add(params, 'sunElevDeg', 0, 90, 1).name('Sun Elev [deg]').onChange(upSun);
   fL.add(params, 'sunAziDeg', -180, 180, 1).name('Sun Azi [deg]').onChange(upSun);
   fL.add(params, 'showGroundShadow').name('Ground shadow').onChange(v=> ground.visible = v);
@@ -486,6 +492,3 @@
 </script>
 </body>
 </html>
-
-
-
